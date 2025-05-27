@@ -5,7 +5,7 @@ import { AuthProvider } from './context/AuthContext';
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
 import PrivateRoute from './components/auth/PrivateRoute';
-import Dashboard from './components/Dashboard';
+import Dashboard from './components/Dashboard/Dashboard';
 
 // Create a theme instance
 const theme = createTheme({

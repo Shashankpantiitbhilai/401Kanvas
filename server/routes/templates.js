@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/auth');
+const { protect, admin } = require('../middleware/auth');
 const Company = require('../models/Company');
 
-// Get all company templates
-router.get('/', auth, async (req, res) => {
+// Get all company templates (any authenticated user)
+router.get('/', protect, async (req, res) => {
   try {
     const companies = await Company.find().select('name logo templates');
     res.json(companies);
@@ -13,12 +13,11 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// Create a new company template
-router.post('/', auth, async (req, res) => {
+// Create a new company template (admin only)
+router.post('/', protect, admin, async (req, res) => {
   try {
     const { companyName, logo, aggressive, moderate, conservative, defaultCommentary } = req.body;
 
-    // Validate portfolio allocations
     const validatePortfolio = (portfolio) => {
       if (!Array.isArray(portfolio)) {
         throw new Error('Portfolio must be an array');
@@ -52,8 +51,8 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// Get a single company template
-router.get('/:id', auth, async (req, res) => {
+// Get a single company template (authenticated)
+router.get('/:id', protect, async (req, res) => {
   try {
     const company = await Company.findById(req.params.id);
     if (!company) {
@@ -65,8 +64,8 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-// Update a company template
-router.patch('/:id', auth, async (req, res) => {
+// Update a company template (admin only)
+router.patch('/:id', protect, admin, async (req, res) => {
   try {
     const updates = Object.keys(req.body);
     const allowedUpdates = ['name', 'logo', 'templates', 'defaultCommentary'];
@@ -76,7 +75,6 @@ router.patch('/:id', auth, async (req, res) => {
       return res.status(400).json({ message: 'Invalid updates' });
     }
 
-    // If updating templates, validate portfolio allocations
     if (req.body.templates) {
       const { aggressive, moderate, conservative } = req.body.templates;
       const validatePortfolio = (portfolio) => {
@@ -111,8 +109,8 @@ router.patch('/:id', auth, async (req, res) => {
   }
 });
 
-// Delete a company template
-router.delete('/:id', auth, async (req, res) => {
+// Delete a company template (admin only)
+router.delete('/:id', protect, admin, async (req, res) => {
   try {
     const company = await Company.findByIdAndDelete(req.params.id);
     if (!company) {
@@ -124,4 +122,4 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;

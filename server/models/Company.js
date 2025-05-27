@@ -26,8 +26,8 @@ const companySchema = new mongoose.Schema({
         aggressive: [portfolioSchema],
         moderate: [portfolioSchema],
         conservative: [portfolioSchema]
-    },
-    defaultCommentary: {
+        },
+        defaultCommentary: {
         type: String
     },
     createdAt: {
