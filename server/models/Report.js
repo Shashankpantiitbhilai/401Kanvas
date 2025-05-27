@@ -1,5 +1,21 @@
 const mongoose = require('mongoose');
 
+const fundPerformanceSchema = new mongoose.Schema({
+    fundName: {
+        type: String,
+        required: true
+    },
+    symbol: String,
+    returns: {
+        oneMonth: Number,
+        threeMonth: Number,
+        sixMonth: Number,
+        twelveMonth: Number,
+        ytd: Number
+    },
+    trackerAverage: Number
+});
+
 const reportSchema = new mongoose.Schema({
     company: {
         type: mongoose.Schema.Types.ObjectId,
@@ -8,35 +24,64 @@ const reportSchema = new mongoose.Schema({
     },
     date: {
         type: Date,
-        required: true
+        required: true,
+        default: Date.now
     },
-    fundData: [{
-        name: String,
-        symbol: String,
-        returns: {
-            oneMonth: Number,
-            threeMonth: Number,
-            sixMonth: Number,
-            twelveMonth: Number,
-            ytd: Number
-        },
-        trackerAverage: Number
-    }],
-    commentary: {
-        marketSummary: String,
+    type: {
+        type: String,
+        required: true,
+        enum: ['Monthly Newsletter', 'Quarterly Review']
+    },
+    status: {
+        type: String,
+        required: true,
+        enum: ['Draft', 'Published'],
+        default: 'Draft'
+    },
+    content: {
+        marketCommentary: String,
         indexAnalysis: String,
         fixedIncomeUpdate: String,
         customNotes: String
     },
+    fundPerformance: [fundPerformanceSchema],
+    modelPortfolios: {
+        aggressive: [{
+            fund: String,
+            allocation: Number,
+            performance: Number
+        }],
+        moderate: [{
+            fund: String,
+            allocation: Number,
+            performance: Number
+        }],
+        conservative: [{
+            fund: String,
+            allocation: Number,
+            performance: Number
+        }]
+    },
     pdfUrl: String,
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
+        ref: 'User',
+        required: true
     },
     createdAt: {
         type: Date,
         default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
     }
+});
+
+// Update the updatedAt timestamp before saving
+reportSchema.pre('save', function(next) {
+    this.updatedAt = Date.now();
+    next();
 });
 
 module.exports = mongoose.model('Report', reportSchema); 

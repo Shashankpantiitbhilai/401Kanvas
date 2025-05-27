@@ -2,123 +2,169 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const xlsx = require('xlsx');
-const { protect } = require('../middleware/auth');
+const auth = require('../middleware/auth');
 const Report = require('../models/Report');
-const path = require('path');
-const fs = require('fs');
+const Company = require('../models/Company');
 
 // Configure multer for Excel file uploads
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadDir = 'uploads/excel';
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${file.originalname}`);
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (
+      file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      file.mimetype === 'application/vnd.ms-excel'
+    ) {
+      cb(null, true);
+    } else {
+      cb(new Error('Please upload only Excel files (.xlsx or .xls)'));
     }
+  },
 });
 
-const upload = multer({
-    storage,
-    fileFilter: (req, file, cb) => {
-        const ext = path.extname(file.originalname).toLowerCase();
-        if (ext !== '.xlsx' && ext !== '.xls') {
-            return cb(new Error('Only Excel files are allowed'));
+// Get all reports (with pagination and filtering)
+router.get('/', auth, (req, res) => {
+  const { page = 1, limit = 10, company, type, status } = req.query;
+  const query = {};
+
+  if (company) query.company = company;
+  if (type) query.type = type;
+  if (status) query.status = status;
+
+  Report.find(query)
+    .populate('company', 'name')
+    .sort({ date: -1 })
+    .limit(parseInt(limit))
+    .skip((parseInt(page) - 1) * parseInt(limit))
+    .exec((err, reports) => {
+      if (err) {
+        return res.status(500).json({ message: err.message });
+      }
+      Report.countDocuments(query, (err, count) => {
+        if (err) {
+          return res.status(500).json({ message: err.message });
         }
-        cb(null, true);
-    }
+        res.json({
+          reports,
+          totalPages: Math.ceil(count / limit),
+          currentPage: parseInt(page),
+          totalReports: count,
+        });
+      });
+    });
 });
 
 // Upload and parse Excel file
-router.post('/upload', protect, upload.single('file'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ message: 'Please upload a file' });
-        }
+router.post('/upload', auth, upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: 'Please upload a file' });
+  }
 
-        // Read Excel file
-        const workbook = xlsx.readFile(req.file.path);
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const data = xlsx.utils.sheet_to_json(worksheet);
+  const { company } = req.body;
+  if (!company) {
+    return res.status(400).json({ message: 'Company ID is required' });
+  }
 
-        // Process the data
-        const fundData = data.map(row => ({
-            name: row['Fund Name'],
-            symbol: row['Symbol'],
-            returns: {
-                oneMonth: parseFloat(row['1 Mo Return']) || 0,
-                threeMonth: parseFloat(row['3 Mo Return']) || 0,
-                sixMonth: parseFloat(row['6 Mo Return']) || 0,
-                twelveMonth: parseFloat(row['12 Mo Return']) || 0,
-                ytd: parseFloat(row['YTD Return']) || 0
-            },
-            trackerAverage: parseFloat(row['Tracker Average']) || 0
-        }));
+  try {
+    const workbook = xlsx.read(req.file.buffer);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(worksheet);
 
-        // Create new report
-        const report = new Report({
-            company: req.body.companyId,
-            date: new Date(),
-            fundData,
-            createdBy: req.user._id
-        });
+    const fundPerformance = data.map(row => ({
+      fundName: row['Fund Name'],
+      symbol: row['Symbol'],
+      returns: {
+        oneMonth: parseFloat(row['1 Mo']),
+        threeMonth: parseFloat(row['3 Mo']),
+        sixMonth: parseFloat(row['6 Mo']),
+        twelveMonth: parseFloat(row['12 Mo']),
+        ytd: parseFloat(row['YTD'])
+      },
+      trackerAverage: parseFloat(row['Tracker Average'])
+    }));
 
-        await report.save();
+    const report = new Report({
+      company,
+      type: 'Monthly Newsletter',
+      fundPerformance,
+      createdBy: req.user.id
+    });
 
-        // Clean up uploaded file
-        fs.unlinkSync(req.file.path);
-
-        res.json({ 
-            message: 'File uploaded and processed successfully',
-            reportId: report._id,
-            fundData 
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Error processing file', error: err.message });
-    }
+    report.save((err, savedReport) => {
+      if (err) {
+        return res.status(500).json({ message: err.message });
+      }
+      res.status(201).json(savedReport);
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
-// Generate PDF report
-router.post('/:id/generate-pdf', protect, async (req, res) => {
-    try {
-        const report = await Report.findById(req.params.id)
-            .populate('company')
-            .populate('createdBy');
-
-        if (!report) {
-            return res.status(404).json({ message: 'Report not found' });
-        }
-
-        // TODO: Implement actual PDF generation using pdfmake
-        // For now, return a mock PDF response
-        res.json({
-            message: 'PDF generated successfully',
-            pdfUrl: `/reports/${report._id}/newsletter.pdf`
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Error generating PDF' });
-    }
+// Get a single report
+router.get('/:id', auth, (req, res) => {
+  Report.findById(req.params.id)
+    .populate('company', 'name logo')
+    .populate('createdBy', 'username')
+    .exec((err, report) => {
+      if (err) {
+        return res.status(500).json({ message: err.message });
+      }
+      if (!report) {
+        return res.status(404).json({ message: 'Report not found' });
+      }
+      res.json(report);
+    });
 });
 
-// Get all reports
-router.get('/', protect, async (req, res) => {
-    try {
-        const reports = await Report.find()
-            .populate('company', 'name')
-            .populate('createdBy', 'email')
-            .sort({ createdAt: -1 });
+// Update report content
+router.patch('/:id', auth, (req, res) => {
+  const allowedUpdates = [
+    'content',
+    'modelPortfolios',
+    'status',
+    'type'
+  ];
+  const updates = Object.keys(req.body);
+  const isValidOperation = updates.every(update => allowedUpdates.includes(update));
 
-        res.json(reports);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'Server error' });
+  if (!isValidOperation) {
+    return res.status(400).json({ message: 'Invalid updates' });
+  }
+
+  Report.findById(req.params.id, (err, report) => {
+    if (err) {
+      return res.status(400).json({ message: err.message });
     }
+    if (!report) {
+      return res.status(404).json({ message: 'Report not found' });
+    }
+
+    updates.forEach(update => {
+      report[update] = req.body[update];
+    });
+
+    report.save((err, updatedReport) => {
+      if (err) {
+        return res.status(400).json({ message: err.message });
+      }
+      res.json(updatedReport);
+    });
+  });
+});
+
+// Delete a report
+router.delete('/:id', auth, (req, res) => {
+  Report.findByIdAndDelete(req.params.id, (err, report) => {
+    if (err) {
+      return res.status(500).json({ message: err.message });
+    }
+    if (!report) {
+      return res.status(404).json({ message: 'Report not found' });
+    }
+    res.json({ message: 'Report deleted successfully' });
+  });
 });
 
 module.exports = router; 

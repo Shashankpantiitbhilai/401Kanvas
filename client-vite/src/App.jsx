@@ -1,31 +1,11 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import Login from './components/Login';
+import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
+import { AuthProvider } from './context/AuthContext';
+import Login from './components/auth/Login';
+import Register from './components/auth/Register';
+import PrivateRoute from './components/auth/PrivateRoute';
 import Dashboard from './components/Dashboard';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
-import { Box, CircularProgress } from '@mui/material';
-import './App.css';
-
-// Protected Route component
-const ProtectedRoute = ({ children }) => {
-    const { user, loading } = useAuth();
-    
-    if (loading) {
-        return (
-            <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
-                <CircularProgress />
-            </Box>
-        );
-    }
-    
-    if (!user) {
-        return <Navigate to="/login" />;
-    }
-    
-    return children;
-};
 
 // Create a theme instance
 const theme = createTheme({
@@ -34,10 +14,7 @@ const theme = createTheme({
             main: '#1976d2',
         },
         secondary: {
-            main: '#9c27b0',
-        },
-        background: {
-            default: '#f5f5f5',
+            main: '#dc004e',
         },
     },
 });
@@ -49,15 +26,21 @@ function App() {
             <AuthProvider>
                 <Router>
                     <Routes>
+                        {/* Public routes */}
                         <Route path="/login" element={<Login />} />
+                        <Route path="/register" element={<Register />} />
+                        
+                        {/* Protected routes */}
                         <Route
                             path="/dashboard"
                             element={
-                                <ProtectedRoute>
+                                <PrivateRoute>
                                     <Dashboard />
-                                </ProtectedRoute>
+                                </PrivateRoute>
                             }
                         />
+                        
+                        {/* Redirect root to dashboard or login based on auth status */}
                         <Route
                             path="/"
                             element={<Navigate to="/dashboard" replace />}
